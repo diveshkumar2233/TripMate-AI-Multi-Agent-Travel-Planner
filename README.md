@@ -1,49 +1,27 @@
-<div align="center">
-
 # ✈️ TripPilot AI
-### A Multi-Agent Travel Planner with LangGraph & MCP
+### Multi-Agent System using LangGraph + MCP — Supervisor, Guardrails & HITL
 
-Turn a single sentence into a full trip plan — flights, hotels, weather, and a day-by-day itinerary.
+A demo multi-agent travel-planning assistant built with **LangGraph** and **MCP**, featuring a Supervisor agent, input Guardrails, and Human-In-The-Loop (HITL) approval flows.
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-multi--agent-1C3C3C?style=flat-square)](https://www.langchain.com/langgraph)
+[![MCP](https://img.shields.io/badge/MCP-model--context--protocol-6E56CF?style=flat-square)](https://modelcontextprotocol.io/)
 [![Groq](https://img.shields.io/badge/LLM-Groq-F55036?style=flat-square)](https://groq.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-state-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](#license)
+[![License](https://img.shields.io/badge/license-see%20LICENSE-green?style=flat-square)](#-license)
 
-[Quick Start](#-quick-start) • [How It Works](#-how-the-workflow-works) • [API](#-api-endpoints) • [Contributing](#-contributing)
+[Key Ideas](#-key-ideas) • [Quick Start](#-quick-start-windows) • [API](#-api-endpoints) • [Contributing](#-contributing)
 
-</div>
-
----
-
-## 📖 Why This Project?
-
-Planning a trip usually means juggling five browser tabs, a spreadsheet, and a group chat full of "wait what did we decide." **TripPilot** collapses that into one request, handled by a coordinated team of AI agents:
-
-| Agent | Job |
-|---|---|
-| ✈️ **Flight Agent** | Researches routes, airlines, and typical fares via AviationStack |
-| 🏨 **Hotel Agent** | Finds accommodation suggestions via Tavily search |
-| 🌦️ **Weather Agent** | Pulls current + forecast conditions for the destination |
-| 🗓️ **Itinerary Agent** | Builds a practical, budget-aware day-by-day plan |
-| 📝 **Final Agent** | Formats everything into one polished response |
-
-All five are orchestrated through a **LangGraph** state machine, so each agent's output feeds cleanly into the next.
 
 ---
 
-## ✨ Features
+## 💡 Key Ideas
 
-- ✈️ Flight research using **AviationStack**
-- 🏨 Hotel suggestions using **Tavily** search
-- 🌦️ Live weather + forecast lookups
-- 🧠 Multi-agent orchestration with **LangGraph**
-- 📝 Structured, section-by-section itinerary generation
-- 🌐 **FastAPI** backend with a simple web interface
-- 💾 Conversation state persistence via **PostgreSQL** checkpointing
-- ⚡ LLM-powered responses via **Groq** (fast inference)
+- 🧠 **Multi-agent coordination** using LangGraph and MCP
+- 🧭 **Supervisor agent** to manage complex workflows and route to specialists
+- 🛡️ **Input guardrails** to validate user requests before they reach the agents
+- ✅ **Human-in-the-loop approval** for generated plans before finalizing
 
 ---
 
@@ -51,85 +29,159 @@ All five are orchestrated through a **LangGraph** state machine, so each agent's
 
 ```mermaid
 flowchart LR
-    A([User Request]) --> B[✈️ Flight Agent]
-    B --> C[🏨 Hotel Agent]
-    C --> D[🌦️ Weather Agent]
-    D --> E[🗓️ Itinerary Agent]
-    E --> F[📝 Final Agent]
-    F --> G([Polished Travel Plan])
+    A([User Request]) --> G{🛡️ Guardrail}
+    G -- blocked --> X([Blocked Response])
+    G -- allowed --> S[🧭 Supervisor]
+    S --> F[✈️ Flight Agent]
+    S --> H[🏨 Hotel Agent]
+    S --> W[🌦️ Weather Agent]
+    S --> B[💰 Budget Agent]
+    F --> I[🗓️ Itinerary Agent]
+    H --> I
+    W --> I
+    B --> I
+    I --> HITL{✅ Human Review}
+    HITL -- approved --> Fin[📝 Final Agent]
+    HITL -- feedback --> I
+    Fin --> Done([Polished Travel Plan])
 
     style A fill:#1C3C3C,color:#fff
-    style G fill:#1C3C3C,color:#fff
+    style Done fill:#1C3C3C,color:#fff
+    style G fill:#6E56CF,color:#fff
+    style HITL fill:#6E56CF,color:#fff
 ```
 
-1. The user submits a travel request in plain English.
-2. The **flight agent** gathers route, airline, and fare information.
-3. The **hotel agent** searches for accommodation suggestions.
-4. The **weather agent** fetches current conditions and a forecast.
-5. The **itinerary agent** stitches it all into a practical day-by-day plan.
-6. The **final agent** formats everything into one polished response.
-
-Every step's state is checkpointed to PostgreSQL, so conversations can resume by `thread_id`.
+1. The user submits a travel request.
+2. The **guardrail** checks the request is valid travel-planning content — unrelated or unsafe requests are blocked immediately.
+3. The **supervisor** decides which specialist agents are actually needed (flight, hotel, weather, budget) and always includes the itinerary agent.
+4. Selected specialists run, each contributing to shared state.
+5. The **itinerary agent** drafts a plan and pauses for **human review (HITL)**.
+6. On approval, the **final agent** polishes and returns the plan. On feedback, it loops back for revision.
 
 ---
 
-## 🛠️ Tech Stack
+## 📁 Contents
 
-<table>
-<tr>
-<td valign="top" width="50%">
-
-**Backend**
-- Python 3.10+
-- FastAPI
-- LangGraph
-- LangChain
-- PostgreSQL (state checkpointing)
-
-</td>
-<td valign="top" width="50%">
-
-**Frontend & APIs**
-- Jinja2 + HTML/CSS/JavaScript
-- Groq (LLM inference)
-- Tavily API (search)
-- AviationStack API (flights)
-
-</td>
-</tr>
-</table>
+| File | Purpose |
+|---|---|
+| `app.py` | FastAPI web frontend and API endpoints |
+| `backend.py` | Core agent orchestration / travel-planner logic (Supervisor, Guardrails, HITL) |
+| `mcp_client.py` | Client helpers to interact with the MCP server |
+| `custom_weather_mcp_server.py` | Example MCP server for weather checks |
+| `templates/`, `static/` | Frontend UI assets (HTML, JS, CSS) |
 
 ---
 
-## 📁 Project Structure
+## ✨ Features
 
-```
-.
-├── app.py                # FastAPI app entry point
-├── backend.py             # LangGraph travel workflow
-├── mcp_client.py          # Flight / hotel / weather data wrappers
-├── requirements.txt       # Python dependencies
-├── static/                # Static frontend assets
-├── templates/              # HTML templates
-└── tools/                  # Flight and web search integrations
-```
+- 🌐 Interactive web UI for sending travel-planning prompts
+- 📝 Endpoint for drafting travel plans, with a **separate approval endpoint**
+- 🔌 Example MCP server demonstrating domain adapters (weather, checkpoints)
+- 🛡️ Guardrails that validate requests before any agent runs
+- 🧭 Supervisor that dynamically selects only the agents a request needs
+- 💾 Conversation state persistence via PostgreSQL checkpointing
 
 ---
 
 ## ✅ Prerequisites
 
-- Python **3.10+**
-- PostgreSQL running and accessible
-- API keys for:
-  - [Groq](https://console.groq.com/)
-  - [Tavily](https://tavily.com/)
-  - [AviationStack](https://aviationstack.com/)
+- Python **3.10+** (recommended)
+- Git (to clone the repo)
+- A virtual environment tool (`venv` or similar)
 
 ---
 
-## 🔑 Environment Variables
+## 🚀 Quick Start (Windows)
 
-Create a `.env` file in the project root:
+<details open>
+<summary><strong>1. Create and activate a virtual environment</strong></summary>
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1    # PowerShell
+```
+
+Using cmd.exe instead?
+```cmd
+.venv\Scripts\activate
+```
+</details>
+
+<details open>
+<summary><strong>2. Install dependencies</strong></summary>
+
+```bash
+pip install -r requirements.txt
+```
+</details>
+
+<details open>
+<summary><strong>3. Run the FastAPI app (development)</strong></summary>
+
+```bash
+# option A (run module)
+python app.py
+
+# option B (uvicorn)
+uvicorn app:app --reload --host 127.0.0.1 --port 8000
+```
+</details>
+
+<details open>
+<summary><strong>4. Open the web UI</strong></summary>
+
+Visit **http://127.0.0.1:8000** in your browser to use the TripPilot frontend.
+</details>
+
+---
+
+## 🛰️ Running the MCP Server (Example)
+
+The repository includes `custom_weather_mcp_server.py` as an example MCP server. Run it in a **separate terminal** to experiment with custom adapters used by the demo:
+
+```bash
+python custom_weather_mcp_server.py
+```
+
+---
+
+## 📸 Screenshots
+
+> Illustrative mockups shown below — swap these for real app screenshots once your frontend is running, using the same file paths.
+
+| Trip request | Agent progress | Final itinerary |
+|---|---|---|
+| ![Trip request screen](docs/screenshots/request.png) | ![Agent progress screen](docs/screenshots/progress.png) | ![Itinerary result screen](docs/screenshots/result.png) |
+
+---
+
+## 🔌 API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/travel` | Create or resume a travel-planning thread. JSON: `{ "message": "<user prompt>", "thread_id": "optional-thread-id" }` |
+| `POST` | `/api/travel/approve` | Approve or request revisions for a draft. JSON: `{ "thread_id": "<id>", "approved": true\|false, "feedback": "optional" }` |
+| `GET` | `/health` | Basic health check and features list |
+
+**Example — create a plan:**
+```bash
+curl -X POST http://127.0.0.1:8000/api/travel \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Plan a 3-day trip to Tokyo with a budget of $1200"}'
+```
+
+**Example — approve a draft:**
+```bash
+curl -X POST http://127.0.0.1:8000/api/travel/approve \
+  -H "Content-Type: application/json" \
+  -d '{"thread_id":"user_ab12cd34","approved":true}'
+```
+
+---
+
+## 🔑 Configuration & Environment
+
+Secrets and API keys are **not included in the repo**. Use environment variables or a `.env` file for any required keys consumed by `langgraph`, `langchain`, or other adapters:
 
 ```env
 DATABASE_URL=postgresql://user:password@localhost:5432/travel_db
@@ -150,88 +202,34 @@ DEFAULT_ORIGIN_IATA=DAC
 
 ---
 
-## 🚀 Quick Start
+## 🛠️ Development Notes
 
-<details open>
-<summary><strong>1. Clone & set up a virtual environment</strong></summary>
-
-```bash
-git clone <your-repo-url>
-cd TripPilot
-
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-```
-</details>
-
-<details open>
-<summary><strong>2. Install dependencies</strong></summary>
-
-```bash
-pip install -r requirements.txt
-```
-
-Using `uv` instead? 
-```bash
-uv sync
-```
-</details>
-
-<details open>
-<summary><strong>3. Configure your .env</strong></summary>
-
-Fill in the variables shown in [Environment Variables](#-environment-variables) above.
-</details>
-
-<details open>
-<summary><strong>4. Run the app</strong></summary>
-
-```bash
-python app.py
-```
-
-Then open:
-```
-http://127.0.0.1:8000/
-```
-</details>
+- The project keeps **synchronous convenience wrappers** in `backend.py` while running an **async FastAPI server** — `nest_asyncio` is applied in `app.py` to allow the sync helpers to call async MCP helpers.
+- Tests are not included; to experiment, interact with the web UI or call the API endpoints directly.
 
 ---
 
-## 🔌 API Endpoints
+## 📄 Resume Bullet (ATS-Optimized)
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/health` | Health check |
-| `POST` | `/api/travel` | Submit a travel request |
+Use this line on your resume to describe this project — written with keyword density and quantifiable impact for Applicant Tracking Systems (ATS):
 
-**Example request:**
+> Built **TripPilot AI**, a multi-agent travel planning system using **Python, LangGraph, MCP, LangChain, FastAPI, and PostgreSQL**, with a Supervisor agent, input Guardrails, and Human-in-the-Loop approval flow, orchestrating specialist agents (flight, hotel, weather, budget, itinerary) via **Groq LLM inference** and **Tavily / AviationStack** API integrations.
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/travel \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Plan a 3-day trip to Tokyo with a budget of $1200"}'
-```
+**Shorter variant (1 line, resume bullet format):**
 
-**Example response shape:**
+> Designed and deployed a multi-agent AI travel planner (Python, LangGraph, MCP, FastAPI, PostgreSQL) with Supervisor routing, input guardrails, and human-in-the-loop review to automate end-to-end trip itinerary generation.
 
-```json
-{
-  "thread_id": "user_ab12cd34",
-  "answer": "Trip Summary...",
-  "flight_results": "...",
-  "hotel_results": "...",
-  "weather_results": "...",
-  "itinerary": "...",
-  "llm_calls": 4
-}
-```
+**Tips to keep the ATS score high:**
+- Keep exact tech-stack keywords from the job description (e.g. "LangGraph", "MCP", "multi-agent", "LLM", "REST API", "PostgreSQL") — ATS parsers match literal strings.
+- Lead with an action verb (Built / Designed / Engineered / Architected).
+- Add a metric if you have one.
+- Avoid tables/graphics in the actual resume file — ATS parsers often can't read them; plain bullet text only.
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome!
+Contributions are welcome. Please open issues or pull requests for bug fixes, documentation improvements, or new adapter examples.
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/my-idea`)
@@ -240,40 +238,21 @@ Contributions are welcome!
 
 ---
 
-## 📸 Screenshots
+## 📜 License
 
-> Illustrative mockups shown below — swap these for real app screenshots once your frontend is running, using the same file paths.
-
-| Trip request | Agent progress | Final itinerary |
-|---|---|---|
-| ![Trip request screen](docs/screenshots/request.png) | ![Agent progress screen](docs/screenshots/progress.png) | ![Itinerary result screen](docs/screenshots/result.png) |
+This repository follows the license in the `LICENSE` file.
 
 ---
 
-## 📄 Resume Bullet (ATS-Optimized)
+## 🙏 Acknowledgements
 
-Use this line on your resume to describe this project — written with keyword density and quantifiable impact for Applicant Tracking Systems (ATS):
-
-> Built **TripPilot**, a multi-agent travel planning system using **Python, LangGraph, LangChain, FastAPI, and PostgreSQL**, orchestrating 5 specialized AI agents (flight, hotel, weather, itinerary, response) with **Groq LLM inference**, **Tavily** and **AviationStack API** integrations, and persistent conversation state via PostgreSQL checkpointing.
-
-**Shorter variant (1 line, resume bullet format):**
-
-> Designed and deployed a multi-agent AI travel planner (Python, LangGraph, FastAPI, PostgreSQL) integrating Groq LLMs and third-party travel APIs to automate end-to-end trip itinerary generation.
-
-**Tips to keep the ATS score high:**
-- Keep exact tech-stack keywords from the job description (e.g. "LangGraph", "multi-agent", "LLM", "REST API", "PostgreSQL") — ATS parsers match literal strings.
-- Lead with an action verb (Built / Designed / Engineered / Architected).
-- Add a metric if you have one (e.g. "reduced manual trip-planning time from ~2 hours to under 2 minutes").
-- Avoid tables/graphics in the actual resume file — ATS parsers often can't read them; plain bullet text only.
+Built as a demonstration of **LangGraph + MCP** patterns with Supervisor and Guardrail concepts.
 
 ---
 
-## 🙏 Acknowledgments
+## 📬 Contact
 
-Built with modern LLM tooling and real-world travel APIs, as a practical example of combining **LangGraph** multi-agent orchestration with an actual usable application.
+For questions or suggestions, open an issue or contact the repository owner.
 
-<div align="center">
 
 Made with ✈️ and a bit of chaos-taming.
-
-</div>
