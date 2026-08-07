@@ -1,0 +1,34 @@
+(एक-एक करके):
+
+1. Temp files साफ करें (सबसे बड़ा फायदा, सबसे safe):
+
+cmd
+del /q/f/s %TEMP%\*
+del /q/f/s C:\Windows\Temp\*
+
+2. Disk Cleanup tool चलाएं (GUI, easiest):
+
+cmd
+cleanmgr /d C:
+
+यह एक window खोलेगा — "System files clean up" पर click करें, फिर सब कुछ select करें (especially "Temporary files", "Recycle Bin", "Windows Update Cleanup") और OK दबाएं.
+
+3. Recycle Bin खाली करें:
+
+cmd
+rd /s /q C:\$Recycle.bin
+
+4. uv का cache भी साफ करें (अगर वो C: पर है और भरा पड़ा है):
+
+cmd
+uv cache clean
+
+5. जगह check करते रहें:
+
+cmd
+dir C:\ /-c
+
+postgresql://divesh_admin:VkAdOrVzkqCtctTUS5gKbcdShK3IcKPt@dpg-d9q6fhe7bikc738irfv0-a.oregon-postgres.render.com/agent_memory_9io0 
+ 
+
+ password@1234
