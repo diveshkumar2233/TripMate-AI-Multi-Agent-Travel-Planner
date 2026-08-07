@@ -30,7 +30,13 @@ from langchain_core.messages import (
 )
 from langchain_groq import ChatGroq
 # from tools.tavily_tool import tavily_search
-# from tools.flight_tool import search_flights
+from tools.flight_tool import (
+    search_flights,
+    resolve_location_to_iata,
+    parse_route,
+    AIRPORTS,
+    DEFAULT_ORIGIN_IATA,
+)
 from mcp_client import tavily_mcp_search, aviation_mcp_call, extract_destination, forecast_mcp_search, weather_mcp_search
 
 
@@ -133,40 +139,9 @@ def flight_agent(state: TravelState):
     query = state["user_query"]
 
     try:
-
-        airports = asyncio.run(
-            aviation_mcp_call(
-                "list_airports"
-            )
-        )
-
-        airlines = asyncio.run(
-            aviation_mcp_call(
-                "list_airlines"
-            )
-        )
-
-
-        print("\nAIRPORTS:", airports)
-        print("\nAIRLINES:", airlines)
-
-        prompt = FLIGHT_AGENT_PROMPT.format(
-            query=query,
-            airport_data=str(airports)[:3000],
-            airline_data=str(airlines)[:3000]
-        )
-
-        response = llm.invoke([
-            SystemMessage(
-                content="You are an expert travel flight planner."
-            ),
-            HumanMessage(content=prompt)
-        ])
-
-        flight_data = response.content
+        flight_data = search_flights(query)
 
     except Exception as e:
-
         flight_data = f"Flight information unavailable: {str(e)}"
 
     return {
@@ -207,26 +182,94 @@ def hotel_agent(state: TravelState):
 # Weather Agent
 # =========================
 
-def weather_agent(state: TravelState):
+def resolve_weather_city(query: str):
+    destination = extract_destination(query)
 
-    city = extract_destination(state["user_query"])
+    if destination:
+        iata = resolve_location_to_iata(destination)
+        if iata and iata in AIRPORTS:
+            airport = AIRPORTS[iata]
+            city = airport.get("city") or destination
+            if city:
+                return city
+        return destination
+
+    dep_iata, arr_iata = parse_route(query)
+
+    for iata in (arr_iata, dep_iata):
+        if iata and iata in AIRPORTS:
+            airport = AIRPORTS[iata]
+            city = airport.get("city")
+            if city:
+                return city
+
+    origin_airport = AIRPORTS.get(DEFAULT_ORIGIN_IATA)
+    return origin_airport.get("city") if origin_airport else "Dhaka"
+
+
+def format_weather_data(weather_data):
+    if isinstance(weather_data, dict):
+        if weather_data.get("error"):
+            return f"Weather error: {weather_data.get('error')}"
+
+        city = weather_data.get("city")
+        temp = weather_data.get("temperature_c")
+        feels_like = weather_data.get("feels_like_c")
+        humidity = weather_data.get("humidity")
+        condition = weather_data.get("condition")
+        wind = weather_data.get("wind_speed")
+
+        if city and temp is not None:
+            return (
+                f"City: {city}\n"
+                f"Temperature: {temp} °C\n"
+                f"Feels like: {feels_like} °C\n"
+                f"Condition: {condition}\n"
+                f"Humidity: {humidity}%\n"
+                f"Wind speed: {wind} m/s"
+            )
+
+    return str(weather_data)
+
+
+def format_forecast_data(forecast_data):
+    if isinstance(forecast_data, dict):
+        if forecast_data.get("error"):
+            return f"Forecast error: {forecast_data.get('error')}"
+
+        forecast_list = forecast_data.get("forecast")
+        if isinstance(forecast_list, list) and forecast_list:
+            lines = [
+                f"{entry.get('datetime')}: {entry.get('temperature')} °C, {entry.get('weather')}"
+                for entry in forecast_list
+            ]
+            return "\n".join(lines)
+
+    return str(forecast_data)
+
+
+def weather_agent(state: TravelState):
+    weather_city = resolve_weather_city(state["user_query"])
 
     weather_data = asyncio.run(
-        weather_mcp_search(city)
+        weather_mcp_search(weather_city)
     )
 
     forecast_data = asyncio.run(
-        forecast_mcp_search(city)
+        forecast_mcp_search(weather_city)
     )
+
+    formatted_weather = format_weather_data(weather_data)
+    formatted_forecast = format_forecast_data(forecast_data)
 
     return {
         "weather_results": f"""
-        Current Weather:
-        {weather_data}
+Current Weather for {weather_city}:
+{formatted_weather}
 
-        Forecast:
-        {forecast_data}
-        """,
+Forecast for {weather_city}:
+{formatted_forecast}
+""",
         "messages": [
             AIMessage(
                 content="Weather information fetched"
