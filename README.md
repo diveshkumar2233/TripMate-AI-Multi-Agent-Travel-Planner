@@ -3,6 +3,8 @@
 
 A demo multi-agent travel-planning assistant built with **LangGraph** and **MCP**, featuring a Supervisor agent, input Guardrails, and Human-In-The-Loop (HITL) approval flows.
 
+🔗 **Live Demo:** [tripmate-ai-multi-agent-travel-planner-2.onrender.com](https://tripmate-ai-multi-agent-travel-planner-2.onrender.com)
+
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![LangGraph](https://img.shields.io/badge/LangGraph-multi--agent-1C3C3C?style=flat-square)](https://www.langchain.com/langgraph)
@@ -10,6 +12,7 @@ A demo multi-agent travel-planning assistant built with **LangGraph** and **MCP*
 [![Groq](https://img.shields.io/badge/LLM-Groq-F55036?style=flat-square)](https://groq.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-state-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![License](https://img.shields.io/badge/license-see%20LICENSE-green?style=flat-square)](#-license)
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen?style=flat-square)](https://tripmate-ai-multi-agent-travel-planner-2.onrender.com)
 
 [Key Ideas](#-key-ideas) • [Quick Start](#-quick-start-windows) • [API](#-api-endpoints) • [Contributing](#-contributing)
 
