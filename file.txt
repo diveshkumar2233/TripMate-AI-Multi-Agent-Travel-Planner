@@ -27,8 +27,3 @@ uv cache clean
 
 cmd
 dir C:\ /-c
-
-postgresql://divesh_admin:VkAdOrVzkqCtctTUS5gKbcdShK3IcKPt@dpg-d9q6fhe7bikc738irfv0-a.oregon-postgres.render.com/agent_memory_9io0 
- 
-
- password@1234
