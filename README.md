@@ -14,8 +14,7 @@ A demo multi-agent travel-planning assistant built with **LangGraph** and **MCP*
 [![License](https://img.shields.io/badge/license-see%20LICENSE-green?style=flat-square)](#-license)
 [![Live Demo](https://img.shields.io/badge/demo-live-brightgreen?style=flat-square)](https://tripmate-ai-multi-agent-travel-planner-2.onrender.com)
 
-[Key Ideas](#-key-ideas) • [Quick Start](#-quick-start-windows) • [API](#-api-endpoints) • [Contributing](#-contributing)
-
+[Key Ideas](#-key-ideas) • [What You Built](#-what-you-built) • [Quick Start](#-quick-start-windows) • [Results](#-results--performance) • [Decisions](#-design-decisions) • [API](#-api-endpoints) • [Contributing](#-contributing)
 
 ---
 
@@ -25,6 +24,20 @@ A demo multi-agent travel-planning assistant built with **LangGraph** and **MCP*
 - 🧭 **Supervisor agent** to manage complex workflows and route to specialists
 - 🛡️ **Input guardrails** to validate user requests before they reach the agents
 - ✅ **Human-in-the-loop approval** for generated plans before finalizing
+
+---
+
+## 🏗️ What You Built
+
+TripPilot AI is a full travel-planning pipeline, not a single prompt-and-response bot:
+
+- A **guardrail layer** rejects off-topic or unsafe requests before any agent runs, so downstream agents never waste a call on garbage input.
+- A **supervisor agent** reads the request and dynamically decides which specialists actually apply — a weekend city trip might only need the hotel and weather agents, while a longer international trip pulls in flights and budget too.
+- Four **specialist agents** (flight, hotel, weather, budget) each own one concern and write their findings into shared graph state, so the itinerary agent doesn't need to know how any of them work internally.
+- An **itinerary agent** merges everything into a draft plan and stops — it does not auto-finalize. The plan sits in a pending state until a human approves it or sends feedback, which routes back into another itinerary pass.
+- A **final agent** only runs after approval, polishing the accepted draft into the response the user sees.
+- Conversation and approval state is checkpointed in **PostgreSQL** via LangGraph, so a thread can be resumed later instead of restarting the whole conversation.
+- A working **MCP server example** (`custom_weather_mcp_server.py`) shows how a domain adapter plugs into the agent graph over the Model Context Protocol, rather than being hardcoded as a Python function call.
 
 ---
 
@@ -158,6 +171,58 @@ python custom_weather_mcp_server.py
 
 ---
 
+## 📊 Results & Performance
+
+> ⚠️ **Fill this in with real, measured numbers before publishing.** Don't reuse generic stats like "94% accuracy" or "10K+ users" unless you actually measured them on this project — an interviewer asking "how did you get that number?" is the fastest way to lose credibility. Suggested things to actually measure and report:
+
+| Metric | How to measure it |
+|---|---|
+| Guardrail block/allow accuracy | Hand-label ~30–50 sample prompts (valid travel requests vs. off-topic/unsafe) and check how many the guardrail classifies correctly |
+| Supervisor agent-selection accuracy | For a sample of requests, note which agents *should* fire (e.g. no flight agent for a local staycation) vs. which the supervisor actually picked |
+| End-to-end plan generation time | Time from `/api/travel` request to itinerary draft ready for review, averaged over several runs |
+| HITL revision rate | Of test plans generated, what fraction needed at least one feedback loop before approval |
+
+Once you have real numbers, replace this table with 2–4 short stats, each with a one-line note on how it was measured.
+
+---
+
+## 🧠 Design Decisions
+
+Full reasoning also lives in [`DECISIONS.md`](./DECISIONS.md). Key choices below.
+
+### 1. Supervisor + specialist agents instead of one agent with many tools
+
+**Choice:** A dedicated Supervisor agent decides which of the flight/hotel/weather/budget agents to invoke, rather than giving one agent all four tools and letting it decide per-call.
+
+**Why:** As the tool count on a single agent grows, tool-selection accuracy tends to degrade and the agent's reasoning trace gets harder to debug. A supervisor that only does routing is a smaller, more testable decision, and each specialist agent can be developed, tested, and swapped independently.
+
+**Trade-offs considered:**
+- Extra hop (supervisor call before any specialist runs) adds latency.
+- If the supervisor misroutes, the error happens before any useful work starts, so its accuracy matters more than any single specialist's.
+- Chosen because the project's whole point is demonstrating multi-agent orchestration patterns, not minimizing latency.
+
+### 2. Guardrail as a separate step before the supervisor, not inside it
+
+**Choice:** Input validation runs as its own graph node before the supervisor is even invoked, instead of being folded into the supervisor's prompt.
+
+**Why:** Keeping "is this request valid" separate from "which agents does this need" means a blocked request costs one LLM call instead of a full supervisor + specialist chain, and the guardrail logic can be tested and tuned without touching routing logic at all.
+
+**Trade-offs considered:**
+- Adds a hard gate that could reject a legitimate but oddly-phrased request; needs decent guardrail prompt tuning to avoid false blocks.
+- Worth it for cost control — rejecting bad input for one LLM call rather than five is a meaningful saving once this runs at any volume.
+
+### 3. PostgreSQL for LangGraph checkpointing instead of in-memory or SQLite
+
+**Choice:** Conversation and approval state is persisted via LangGraph's PostgreSQL checkpointer.
+
+**Why:** The HITL flow depends on a thread being resumable after the process restarts or the user comes back later — a plan can sit "pending approval" for an arbitrary amount of time. In-memory state would lose that on any restart, and SQLite doesn't handle concurrent access from a multi-worker FastAPI deployment as cleanly as Postgres does.
+
+**Trade-offs considered:**
+- Requires a running Postgres instance (`DATABASE_URL`) instead of zero-setup local storage — more moving parts for a demo project.
+- Chosen because HITL is a core feature here, not an afterthought, and losing a pending approval on restart would break the main demo flow.
+
+---
+
 ## 🔌 API Endpoints
 
 | Method | Endpoint | Description |
@@ -214,7 +279,7 @@ DEFAULT_ORIGIN_IATA=DAC
 
 ## 📄 Resume Bullet (ATS-Optimized)
 
-Use this line on your resume to describe this project — written with keyword density and quantifiable impact for Applicant Tracking Systems (ATS):
+Use this line on your resume to describe this project — written with keyword density for Applicant Tracking Systems (ATS):
 
 > Built **TripPilot AI**, a multi-agent travel planning system using **Python, LangGraph, MCP, LangChain, FastAPI, and PostgreSQL**, with a Supervisor agent, input Guardrails, and Human-in-the-Loop approval flow, orchestrating specialist agents (flight, hotel, weather, budget, itinerary) via **Groq LLM inference** and **Tavily / AviationStack** API integrations.
 
@@ -225,7 +290,7 @@ Use this line on your resume to describe this project — written with keyword d
 **Tips to keep the ATS score high:**
 - Keep exact tech-stack keywords from the job description (e.g. "LangGraph", "MCP", "multi-agent", "LLM", "REST API", "PostgreSQL") — ATS parsers match literal strings.
 - Lead with an action verb (Built / Designed / Engineered / Architected).
-- Add a metric if you have one.
+- Add a metric if you have one — from the Results section above, once measured.
 - Avoid tables/graphics in the actual resume file — ATS parsers often can't read them; plain bullet text only.
 
 ---
