@@ -3,7 +3,7 @@
 
 A demo multi-agent travel-planning assistant built with **LangGraph** and **MCP**, featuring a Supervisor agent, input Guardrails, and Human-In-The-Loop (HITL) approval flows.
 
-🔗 **Live Demo:** [https://tripmate-ai-multi-agent-travel-planner-3.onrender.com/)
+🔗 **Live Demo:** https://tripmate-ai-multi-agent-travel-planner-3.onrender.com/
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
