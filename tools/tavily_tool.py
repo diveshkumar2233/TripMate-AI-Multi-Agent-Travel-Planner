@@ -10,10 +10,19 @@ client = TavilyClient(
 
 
 def tavily_search(query):
-    response = client.search(
-        query= query,
-        max_results= 5
-    )
+    try:
+        response = client.search(
+            query=query,
+            max_results=5,
+        )
+    except Exception as exc:
+        # Search is an optional source. Network/firewall failures should not
+        # take down the whole travel-planning request.
+        print(
+            f"Tavily search unavailable ({type(exc).__name__}); continuing without live search results.",
+            flush=True,
+        )
+        return []
 
     results = []
 

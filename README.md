@@ -1,4 +1,4 @@
-# ✈️ TripPilot AI
+# ✈️ TripPilot AI — Multi-Agent System using LangGraph + MCP — Supervisor, Guardrails & HITL
 ### Multi-Agent System using LangGraph + MCP — Supervisor, Guardrails & HITL
 
 A demo multi-agent travel-planning assistant built with **LangGraph** and **MCP**, featuring a Supervisor agent, input Guardrails, and Human-In-The-Loop (HITL) approval flows.
@@ -139,14 +139,14 @@ pip install -r requirements.txt
 python app.py
 
 # option B (uvicorn)
-uvicorn app:app --reload --host 127.0.0.1 --port 8000
+uvicorn app:app --reload --host 127.0.0.1 --port 8001
 ```
 </details>
 
 <details open>
 <summary><strong>4. Open the web UI</strong></summary>
 
-Visit **http://127.0.0.1:8000** in your browser to use the TripPilot frontend.
+Visit **http://127.0.0.1:8001** in your browser to use the TripPilot frontend.
 </details>
 
 ---
@@ -233,14 +233,14 @@ Full reasoning also lives in [`DECISIONS.md`](./DECISIONS.md). Key choices below
 
 **Example — create a plan:**
 ```bash
-curl -X POST http://127.0.0.1:8000/api/travel \
+curl -X POST http://127.0.0.1:8001/api/travel \
   -H "Content-Type: application/json" \
   -d '{"message":"Plan a 3-day trip to Tokyo with a budget of $1200"}'
 ```
 
 **Example — approve a draft:**
 ```bash
-curl -X POST http://127.0.0.1:8000/api/travel/approve \
+curl -X POST http://127.0.0.1:8001/api/travel/approve \
   -H "Content-Type: application/json" \
   -d '{"thread_id":"user_ab12cd34","approved":true}'
 ```
@@ -256,7 +256,7 @@ DATABASE_URL=postgresql://user:password@localhost:5432/travel_db
 GROQ_API_KEY=your_groq_api_key
 AVIATIONSTACK_API_KEY=your_aviationstack_api_key
 TAVILY_API_KEY=your_tavily_api_key
-DEFAULT_ORIGIN_IATA=DAC
+DEFAULT_ORIGIN_IATA=DEL
 ```
 
 <details>

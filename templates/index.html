@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TripMate AI</title>
-  <link rel="stylesheet" href="/static/style.css?v=3">
+  <title>TripPilot AI</title>
+  <link rel="stylesheet" href="/static/style.css?v=6">
 </head>
 <body>
   <div class="page-bg">
@@ -16,12 +16,12 @@
   <main class="app-container">
     <section class="hero-section">
       <div class="badge">
-        ✈️ TripMate AI — LangGraph, MCP, Supervisor, Guardrails & HITL
+        ✈️ TripPilot AI — destination-grounded travel planning
       </div>
       <h1>Plan Your Perfect Trip with AI</h1>
       <p>
-        Search flights, discover hotels, check weather, assess your budget,
-        and review the AI-generated draft before the final itinerary is created.
+        Get a day-by-day itinerary with route guidance, hotel neighborhoods,
+        seasonal weather advice, and a trip-length budget estimate.
       </p>
     </section>
 
@@ -30,7 +30,7 @@
         <div>
           <h2>Where do you want to go?</h2>
           <p>
-            Example: Plan a complete 7 days Japan trip from Bangladesh under 2 lakhs.
+            Example: Plan a complete 7 days Japan trip from India under 2 lakhs.
           </p>
         </div>
         <div class="status-pill">
@@ -42,22 +42,22 @@
       <div class="input-area">
         <textarea
           id="userInput"
-          placeholder="Plan a complete 7 days Japan trip including flights, hotels and sightseeing under 2 lakhs..."
+          placeholder="Plan a complete 7 days Japan trip from India including flights, hotels and sightseeing under 2 lakhs..."
         ></textarea>
         <button id="sendBtn" onclick="sendMessage()">
-          <span id="btnText">Generate Draft</span>
+          <span id="btnText">Generate Travel Plan</span>
           <span id="btnLoader" class="loader hidden"></span>
         </button>
       </div>
 
       <div class="quick-prompts">
-        <button onclick="setPrompt('Plan a complete 7 days Japan trip from Bangladesh including flights, hotels and sightseeing under 2 lakhs.')">
+        <button onclick="setPrompt('Plan a complete 7 days Japan trip from India including flights, hotels and sightseeing under 2 lakhs.')">
           Japan Trip
         </button>
         <button onclick="setPrompt('Plan a 5 days Dubai trip from Dhaka with flights, hotels and sightseeing.')">
           Dubai Trip
         </button>
-        <button onclick="setPrompt('Plan a 7 days Thailand trip from Bangladesh with budget hotels and sightseeing.')">
+        <button onclick="setPrompt('Plan a 7 days Thailand trip from India with budget hotels and sightseeing.')">
           Thailand Trip
         </button>
         <button onclick="setPrompt('Give me all country flight info.')">
@@ -66,21 +66,10 @@
       </div>
     </section>
 
-    <section id="workflowSection" class="workflow-section hidden">
-      <div class="workflow-header">
-        <div>
-          <span class="eyebrow">Supervisor Agent</span>
-          <h2>Execution Plan</h2>
-        </div>
-        <span id="guardrailBadge" class="guardrail-badge">Guardrail passed</span>
-      </div>
-      <p id="supervisorReasoning" class="supervisor-reasoning"></p>
-      <div id="agentChips" class="agent-chips"></div>
-    </section>
-
     <section id="resultSection" class="result-section hidden">
       <div class="result-header">
         <div>
+          <span id="planStageLabel" class="eyebrow">FINAL TRIP PLAN · READY TO BOOK</span>
           <h2 id="resultTitle">Your AI Travel Plan</h2>
           <p id="threadInfo">Thread ID: -</p>
         </div>
@@ -89,6 +78,8 @@
           <button class="download-btn" onclick="downloadPDF()">Download PDF</button>
         </div>
       </div>
+
+      <div id="planLegend" class="plan-legend"></div>
 
       <div id="pdfContent" class="pdf-content">
         <h1 class="pdf-title">AI Travel Plan</h1>
@@ -122,6 +113,34 @@
       </div>
     </section>
 
+    <section id="finalFeedbackSection" class="approval-section final-feedback-section hidden">
+      <div class="approval-content">
+        <span class="eyebrow">Human-in-the-loop feedback</span>
+        <h2>Help improve this travel plan</h2>
+        <p>Rate the plan and tell us what should be corrected or made more useful.</p>
+        <label class="feedback-rating-label" for="finalRating">Rating</label>
+        <select id="finalRating" class="feedback-rating">
+          <option value="5">5 — Excellent</option>
+          <option value="4">4 — Good</option>
+          <option value="3">3 — Okay</option>
+          <option value="2">2 — Needs work</option>
+          <option value="1">1 — Incorrect</option>
+        </select>
+        <textarea
+          id="finalFeedback"
+          class="feedback-input"
+          maxlength="2000"
+          placeholder="What should we fix in this itinerary?"
+        ></textarea>
+        <div class="approval-actions">
+          <button id="finalFeedbackBtn" class="approve-btn" type="button" onclick="submitFinalFeedback()">
+            Send feedback
+          </button>
+          <span id="finalFeedbackStatus" class="feedback-status" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+    </section>
+
     <section id="errorBox" class="error-box hidden"></section>
   </main>
 
@@ -131,6 +150,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <script src="/static/script.js?v=3" defer></script>
+  <script src="/static/script.js?v=9"></script>
 </body>
 </html>

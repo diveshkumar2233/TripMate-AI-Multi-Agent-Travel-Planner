@@ -5,3 +5,10 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+.env
+.git/
+__pycache__/
+*.py[cod]
+*.log
+feedback.jsonl
+.pytest_cache/

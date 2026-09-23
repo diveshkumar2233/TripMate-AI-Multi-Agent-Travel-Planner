@@ -1,9 +1,11 @@
 import os 
 import re 
+import logging
 import certifi
 import airportsdata
 import pycountry
 import requests
+from requests.exceptions import ConnectionError, HTTPError, Timeout
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,13 +14,18 @@ os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
 API_KEY = os.getenv("AVIATIONSTACK_API_KEY")
+logger = logging.getLogger(__name__)
 
 # Default origin when user says only destination, e.g. "Japan trip"
-# Change this if your default location is not Bangladesh/Dhaka.
-DEFAULT_ORIGIN_IATA = os.getenv("DEFAULT_ORIGIN_IATA", "DAC")
+# Default to Delhi for India-focused suggestions; override it in .env if needed.
+DEFAULT_ORIGIN_IATA = os.getenv("DEFAULT_ORIGIN_IATA", "DEL")
 
 
 BASE_URL = "https://api.aviationstack.com/v1/flights"
+FLIGHT_UNAVAILABLE = {
+    "status": "offline",
+    "message": "Live flight details offline. Standard carriers: Biman Bangladesh, IndiGo, Air India",
+}
 
 
 AIRPORTS = airportsdata.load("IATA")
@@ -287,37 +294,33 @@ def resolve_location_to_iata(location: str):
 
 
 
+_KNOWN_LOCATION_NAMES = set(COUNTRY_ALIASES) | set(CITY_MAIN_AIRPORT)
+_KNOWN_LOCATION_NAMES.update(
+    country.name.lower()
+    for country in pycountry.countries
+    if len(country.name) >= 4
+)
+_KNOWN_LOCATION_NAMES.update(
+    str(airport.get("city", "")).strip().lower()
+    for airport in AIRPORTS.values()
+    if len(str(airport.get("city", "")).strip()) >= 3
+)
+
+
 def find_location_mentions(query: str):
     """
-    Finds country or city names inside a natural language query.
+    Finds country and airport-city names in the order used in the query.
     """
-
     q = query.lower()
-    mentions = []
+    found = []
+    for place in _KNOWN_LOCATION_NAMES:
+        match = re.search(rf"\b{re.escape(place)}\b", q)
+        if match:
+            found.append((match.start(), -len(place), place))
 
-    # Country aliases
-    for alias in COUNTRY_ALIASES:
-        if re.search(rf"\b{re.escape(alias)}\b", q):
-            mentions.append(alias)
-
-    # Country names from pycountry
-    for country in pycountry.countries:
-        name = country.name.lower()
-        if len(name) >= 4 and re.search(rf"\b{re.escape(name)}\b", q):
-            mentions.append(name)
-
-    # City names from our preferred city map
-    for city in CITY_MAIN_AIRPORT:
-        if re.search(rf"\b{re.escape(city)}\b", q):
-            mentions.append(city)
-
-    # Remove duplicate while keeping order
-    unique_mentions = []
-    for item in mentions:
-        if item not in unique_mentions:
-            unique_mentions.append(item)
-
-    return unique_mentions
+    # Prefer the longest name when matches start at the same position.
+    found.sort()
+    return [place for _, _, place in found]
 
 
 def parse_route(query: str):
@@ -388,6 +391,22 @@ def parse_route(query: str):
 
         return dep_iata, arr_iata
 
+    # Natural phrasing such as "Dubai trip from Delhi with flights and hotels".
+    # Resolve the destination mentioned before "from" and stop the origin at
+    # common request modifiers instead of treating "Delhi with flights" as a city.
+    match = re.search(
+        r"\bfrom\s+(.+?)(?:\s+(?:with|for|on|under|including|in|at)\b|[.!?]|$)",
+        q_lower,
+    )
+    if match:
+        origin_text = match.group(1)
+        dep_iata = resolve_location_to_iata(origin_text)
+        earlier_mentions = find_location_mentions(q_lower[:match.start()])
+        if earlier_mentions:
+            arr_iata = resolve_location_to_iata(earlier_mentions[-1])
+            if dep_iata and arr_iata:
+                return dep_iata, arr_iata
+
     # Pattern: flights from X
     match = re.search(r"\bfrom\s+(.+?)(?:[.!?]|$)", q_lower)
 
@@ -423,6 +442,7 @@ def format_flight(flight: dict):
     airline = flight.get("airline", {}).get("name") or "Unknown airline"
     flight_number = flight.get("flight", {}).get("iata") or "Unknown flight number"
     status = flight.get("flight_status") or "Unknown"
+    flight_date = flight.get("flight_date") or "Date not provided by flight source"
 
     dep = flight.get("departure", {}) or {}
     arr = flight.get("arrival", {}) or {}
@@ -444,6 +464,7 @@ def format_flight(flight: dict):
     arr_delay_text = f"{arr_delay} minutes" if arr_delay is not None else "N/A"
 
     return f"""
+Flight date: {flight_date}
 Airline: {airline}
 Flight: {flight_number}
 Status: {status}
@@ -453,7 +474,7 @@ Departure:
 - IATA: {dep_iata}
 - Terminal: {dep_terminal}
 - Gate: {dep_gate}
-- Scheduled: {dep_scheduled}
+- Scheduled local time: {dep_scheduled}
 - Delay: {dep_delay_text}
 
 Arrival:
@@ -461,18 +482,14 @@ Arrival:
 - IATA: {arr_iata}
 - Terminal: {arr_terminal}
 - Gate: {arr_gate}
-- Scheduled: {arr_scheduled}
+- Scheduled local time: {arr_scheduled}
 - Delay: {arr_delay_text}
 """.strip()
 
 
 def search_flights(query: str, limit: int = 10):
     if not API_KEY:
-        return (
-            "Flight API error: AVIATIONSTACK_API_KEY is missing.\n"
-            "Please add this in your .env file:\n"
-            "AVIATIONSTACK_API_KEY=your_api_key_here"
-        )
+        return FLIGHT_UNAVAILABLE
 
     dep_iata, arr_iata = parse_route(query)
 
@@ -489,19 +506,32 @@ def search_flights(query: str, limit: int = 10):
 
     try:
         response = requests.get(BASE_URL, params=params, timeout=30)
+        if response.status_code >= 400:
+            logger.warning("AviationStack returned HTTP %s.", response.status_code)
+        response.raise_for_status()
         data = response.json()
-    except requests.exceptions.RequestException as e:
-        return f"Flight API request failed: {e}"
+    except (ConnectionError, Timeout, HTTPError, requests.exceptions.RequestException) as exc:
+        # Do not log exception text: requests errors can include the secret query URL.
+        logger.warning("AviationStack request failed (%s).", type(exc).__name__)
+        return FLIGHT_UNAVAILABLE
     except ValueError:
-        return "Flight API returned invalid JSON."
+        logger.warning("AviationStack returned an unreadable response.")
+        return FLIGHT_UNAVAILABLE
+
+    if not isinstance(data, dict):
+        return FLIGHT_UNAVAILABLE
 
     if "error" in data:
-        error = data["error"]
-        return (
-            "Flight API error:\n"
-            f"Code: {error.get('code', 'Unknown')}\n"
-            f"Message: {error.get('message', 'Unknown error')}"
-        )
+        error = data.get("error") or {}
+        if isinstance(error, dict):
+            logger.warning(
+                "AviationStack rejected the request (code=%s, type=%s).",
+                str(error.get("code", "unknown"))[:80],
+                str(error.get("type", "unknown"))[:80],
+            )
+        else:
+            logger.warning("AviationStack rejected the request.")
+        return FLIGHT_UNAVAILABLE
 
     flight_data = data.get("data", [])
 
@@ -515,11 +545,7 @@ def search_flights(query: str, limit: int = 10):
         elif arr_iata:
             route_text = f" to {arr_iata}"
 
-        return (
-            f"No live flight data found{route_text}.\n\n"
-            "Note: AviationStack provides live/status flight data, not ticket prices. "
-            "For actual fare prices, use a flight-pricing API such as Amadeus."
-        )
+        return FLIGHT_UNAVAILABLE
 
     route_info = "Global live flights"
 
