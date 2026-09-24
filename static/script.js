@@ -1,4 +1,4 @@
-const CLIENT_BUILD_ID = "tokyo-grounded-hitl-v7";
+const CLIENT_BUILD_ID = "trip-planner-demo-v11";
 let currentThreadId = localStorage.getItem("travel_thread_id") || null;
 if (currentThreadId && currentThreadId.startsWith("offline_")) {
     localStorage.removeItem("travel_thread_id");
@@ -44,23 +44,25 @@ function compactResearch(kind, content) {
     const clean = content.replace(/\s+/g, " ").trim();
 
     if (kind === "flight") {
-        if (clean.startsWith("Live flight details unavailable.") || clean.startsWith("Live flight details offline.")) return clean;
+        if (/^Live flight (?:details offline|tracking is unavailable|details unavailable)\./i.test(clean)) {
+            return "Live flight schedules were not returned. Use the route search link below to compare dates and fares.";
+        }
         const records = [...content.matchAll(/Flight date:\s*([^\r\n]+)[\s\S]*?Airline:\s*([^\r\n]+)\s+Flight:\s*([^\r\n]+)\s+Status:\s*([^\r\n]+)[\s\S]*?Departure:[\s\S]*?IATA:\s*([^\r\n]+)[\s\S]*?Scheduled local time:\s*([^\r\n]+)[\s\S]*?Arrival:[\s\S]*?IATA:\s*([^\r\n]+)[\s\S]*?Scheduled local time:\s*([^\r\n]+)/gi)];
         if (!records.length) return `${clean} Confirm schedules and ticket prices with the airline before booking.`;
         return records.slice(0, 3).map((m) => `${m[2].trim()} ${m[3].trim()} ? ${m[5].trim()} ? ${m[7].trim()} ? ${m[1].trim()} ? ${m[4].trim()} ? dep ${m[6].trim()} / arr ${m[8].trim()}`).join(" | ");
     }
 
     if (kind === "hotel") {
-        if (clean.toLowerCase().includes("no results found")) {
-            return "Live property search is unavailable. Use the destination neighborhood suggestions in the itinerary and verify current listings.";
+        if (/no results found|no current property results|check availability directly/i.test(clean)) {
+            return "No live property listings were returned. Use the neighborhood map searches in the Accommodation Recommendations section.";
         }
-        const titles = [...content.matchAll(/\*\*(.*?)\*\*/g)]
+        const titles = [...content.matchAll(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g)]
             .map((match) => match[1].trim())
             .filter(Boolean)
             .slice(0, 3);
         return titles.length
-            ? `Research sources: ${titles.join(" · ")}. Compare location, reviews, taxes and cancellation terms before booking.`
-            : "Hotel discovery research is available. Compare location, recent reviews, taxes and cancellation terms before booking.";
+            ? `Property search results: ${titles.join(" · ")}. Open the itinerary links to review the source listings.`
+            : "No readable property listings returned. Use the linked neighborhood map searches in the itinerary.";
     }
 
     if (kind === "weather") {
@@ -93,7 +95,7 @@ function showResearchCards(research = {}) {
     const budgetText = typeof research.budget_results === "string" ? research.budget_results.trim() : "";
     const displayResearch = {
         ...research,
-        flight_results: flightText || "Live flight details offline. Standard carriers: Biman Bangladesh, IndiGo, Air India. Live schedules and fares could not be loaded.",
+        flight_results: flightText || "Live flight tracking is unavailable. No schedules or fares were returned for this route.",
         weather_results: weatherText || "Live weather currently unavailable. Pack for seasonal averages.",
         budget_results: budgetText || `Estimated trip budget: ${budgetCurrency} ${(dailyLow * tripDays).toLocaleString()}–${(dailyHigh * tripDays).toLocaleString()} for ${tripDays} days. Planning estimate, not a live quote.`,
     };
@@ -111,9 +113,9 @@ function showResearchCards(research = {}) {
     for (const [kind, icon, title, label, content] of cards) {
         let statusLabel = label;
         const cleanContent = content.toLowerCase();
-        if (kind === "flight" && (cleanContent.includes("live flight details unavailable") || cleanContent.includes("live flight details offline"))) statusLabel = "LIVE DATA UNAVAILABLE";
+        if (kind === "flight" && (cleanContent.includes("live flight details unavailable") || cleanContent.includes("live flight details offline") || cleanContent.includes("live flight tracking is unavailable"))) statusLabel = "LIVE DATA UNAVAILABLE";
         if (kind === "weather" && cleanContent.includes("live weather currently unavailable")) statusLabel = "SEASONAL GUIDANCE";
-        if (kind === "hotel" && cleanContent.includes("no results found")) statusLabel = "NEIGHBORHOOD GUIDANCE";
+        if (kind === "hotel" && (cleanContent.includes("no results found") || cleanContent.includes("no current property results"))) statusLabel = "NEIGHBORHOOD GUIDANCE";
         const card = document.createElement("article");
         card.className = "research-card";
         const heading = document.createElement("h3");
@@ -201,7 +203,7 @@ function showResult(answer, threadId, requiresApproval = false, approvalRequest 
     if (stageLabel) {
         stageLabel.textContent = requiresApproval
             ? "TRIP PLAN · REVIEW BEFORE BOOKING"
-            : "FINAL TRIP PLAN · READY TO BOOK";
+            : "TRIP PLAN · ESTIMATES — VERIFY BEFORE BOOKING";
     }
     if (planLegend) planLegend.innerHTML = `
         <span class="legend-intro">Plan data labels</span>
@@ -312,12 +314,8 @@ async function sendMessage() {
         }
 
         if (data.build_id !== CLIENT_BUILD_ID) {
-            if (["localhost", "127.0.0.1"].includes(window.location.hostname) && window.location.port !== "8001") {
-                window.location.assign(`${window.location.protocol}//${window.location.hostname}:8001/`);
-                return;
-            }
             throw new Error(
-                "TripPilot backend version does not match this page. Open the current project server on port 8001."
+                `TripPilot page/backend versions differ (page: ${CLIENT_BUILD_ID}, server: ${data.build_id || "unknown"}). Restart the project server on this same address and refresh.`
             );
         }
 

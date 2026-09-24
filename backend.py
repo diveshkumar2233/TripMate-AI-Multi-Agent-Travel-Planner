@@ -12,6 +12,7 @@ import operator
 import uuid
 import re
 import time
+from urllib.parse import quote_plus
 from datetime import datetime, timezone
 
 import psycopg
@@ -151,8 +152,21 @@ def _normalize_search_results(raw) -> list[dict]:
                 normalized.append({"title": str(item), "url": "", "content": ""})
         return normalized
 
-    # Fallback: treat as a single opaque text blob (older tool versions).
+    # tavily_search currently formats its result list as numbered markdown.
+    # Parse that shape back into records so titles, links, and snippets survive
+    # into the hotel recommendations instead of becoming one opaque text blob.
     text = str(raw).strip()
+    tavily_items = re.findall(
+        r"(?ms)^\s*\d+\.\s+\*\*(.*?)\*\*\s*\n\s*(https?://\S+)\s*\n\s*(.*?)(?=^\s*\d+\.\s+\*\*|\Z)",
+        text,
+    )
+    if tavily_items:
+        return [
+            {"title": title.strip(), "url": url.strip(), "content": content.strip()}
+            for title, url, content in tavily_items
+        ]
+
+    # Fallback: treat as a single opaque text blob (older tool versions).
     return [{"title": text, "url": "", "content": ""}] if text else []
 
 
@@ -305,14 +319,93 @@ def _build_daily_plan_data(days: int, destination: str) -> List[DayPlan]:
     return day_plans
 
 
-def _daily_plan_markdown(days: List[DayPlan]) -> str:
+def _daily_budget_breakdowns(days: List[DayPlan], budget_results: str, currency_code: str) -> List[tuple[str, str]]:
+    """Allocate the trip estimate by day and show the main expense categories."""
+    currency_code = currency_code.upper()
+    symbol = _CURRENCY_SYMBOLS.get(currency_code, f"{currency_code} ")
+    duration = len(days)
+    if not duration:
+        return []
+    budget_match = re.search(r"Budget range:\s*([\d,]+)-([\d,]+)", budget_results or "", re.I)
+    if budget_match:
+        trip_low, trip_high = (int(value.replace(",", "")) for value in budget_match.groups())
+    else:
+        budget_match = re.search(r"Planning budget input:\s*[A-Z]{3}\s+([\d,]+)", budget_results or "", re.I)
+        if budget_match:
+            trip_low = trip_high = int(budget_match.group(1).replace(",", ""))
+        else:
+            daily_low, daily_high = _DAILY_BUDGET_RANGES.get(currency_code, (100, 250))
+            trip_low, trip_high = daily_low * duration, daily_high * duration
+
+    activity_weights = []
+    for day in days:
+        text = " ".join((day.title, day.morning, day.afternoon, day.evening, day.pro_tip)).lower()
+        weight = 1.0
+        if re.search(r"desert safari|day trip|excursion|theme park|skiing|gondola|cable car|cruise|\bflight\b|\bairport\b", text):
+            weight += 0.35
+        if re.search(r"ticket|museum|guided tour|aquarium|observation deck|boat ride|fort|palace|temple", text):
+            weight += 0.18
+        if re.search(r"free|walk|park|beach|market|self-guided", text):
+            weight -= 0.12
+        activity_weights.append(max(weight, 0.7))
+
+    flight_weights = [1.0 if index in {0, duration - 1} else 0.0 for index in range(duration)]
+    stay_weights = [1.0 if duration == 1 or index < duration - 1 else 0.0 for index in range(duration)]
+    categories = [
+        ("Flight share", 35, flight_weights),
+        ("Hotel / stay", 25, stay_weights),
+        ("Food", 12, activity_weights),
+        ("Local transit", 8, activity_weights),
+        ("Activities", 15, activity_weights),
+        ("Buffer", 5, activity_weights),
+    ]
+    daily = [{"low": 0, "high": 0, "parts": []} for _ in days]
+
+    def allocate(amount: int, weights: List[float]) -> List[int]:
+        active = [index for index, weight in enumerate(weights) if weight > 0]
+        total_weight = sum(weights[index] for index in active) or 1
+        values = [0] * duration
+        allocated = 0
+        for index in active[:-1]:
+            values[index] = round(amount * weights[index] / total_weight)
+            allocated += values[index]
+        values[active[-1]] = amount - allocated
+        return values
+
+    for label, percent, weights in categories:
+        category_low = round(trip_low * percent / 100)
+        category_high = round(trip_high * percent / 100)
+        lows, highs = allocate(category_low, weights), allocate(category_high, weights)
+        for index in range(duration):
+            daily[index]["low"] += lows[index]
+            daily[index]["high"] += highs[index]
+            daily[index]["parts"].append(
+                f"{label}: {symbol}{lows[index]:,}–{symbol}{highs[index]:,}"
+                if lows[index] != highs[index] else f"{label}: {symbol}{lows[index]:,}"
+            )
+
+    result = []
+    for item in daily:
+        total = f"{symbol}{item['low']:,}–{symbol}{item['high']:,}" if item["low"] != item["high"] else f"{symbol}{item['low']:,}"
+        result.append((total, " · ".join(item["parts"])))
+    return result
+
+
+def _daily_plan_markdown(
+    days: List[DayPlan], budget_results: str = "", currency_code: str = "USD", total_days: int | None = None
+) -> str:
+    daily_budgets = _daily_budget_breakdowns(days, budget_results, currency_code)
+
     return "\n\n".join(
         f"### Day {item.day}: {item.title}\n"
         f"- **Morning:** {item.morning}\n"
         f"- **Afternoon:** {item.afternoon}\n"
         f"- **Evening:** {item.evening}\n"
-        f"- **Pro-Tip:** {item.pro_tip}"
-        for item in days
+        f"- **Pro-Tip:** {item.pro_tip}\n"
+        f"- **Estimated daily budget:** {daily_budgets[index][0]} (approximate allocation)\n"
+        f"- **Daily cost breakdown:** {daily_budgets[index][1]}\n"
+        f"  Prices vary by dates, actual bookings, and travel style."
+        for index, item in enumerate(days)
     )
 
 
@@ -373,11 +466,11 @@ def _day_block(day_num: int, title: str, morning: str, afternoon: str, evening: 
     )
 
 
-def _build_day_by_day(days: int, destination: str) -> str:
+def _build_day_by_day(days: int, destination: str, budget_results: str = "", currency_code: str = "USD") -> str:
     """Build exact-length destination-grounded days for the offline response."""
     if not days or days < 1:
         return ""
-    return _daily_plan_markdown(_build_daily_plan_data(days, destination))
+    return _daily_plan_markdown(_build_daily_plan_data(days, destination), budget_results, currency_code, days)
 
 
 # ---- Logistics + highlights lookup for the Executive Summary --------
@@ -457,6 +550,13 @@ def _plain_from_markdown_links(markdown_text: str, limit: int = 3) -> list[str]:
     return plain
 
 
+def _flight_search_link(origin: str, destination: str) -> str:
+    origin_code = re.search(r"\b[A-Z]{3}\b", origin or "")
+    destination_code = re.search(r"\b[A-Z]{3}\b", destination or "")
+    route = f"{origin_code.group(0) if origin_code else origin} to {destination_code.group(0) if destination_code else destination}"
+    return "https://www.google.com/travel/flights?q=" + quote_plus(f"flights from {route}")
+
+
 def _flight_recommendations_section(flight_results: str, destination: str, origin: str = "your city") -> str:
     if isinstance(flight_results, dict):
         flight_results = str(flight_results.get("message", FLIGHT_UNAVAILABLE["message"]))
@@ -467,7 +567,12 @@ def _flight_recommendations_section(flight_results: str, destination: str, origi
     ):
         flight_results = FLIGHT_UNAVAILABLE["message"]
     if (flight_results or "").startswith(("Live flight details unavailable.", "Live flight details offline.")):
-        return f"## Flight Recommendations\n- **Route:** {origin} -> {destination}\n- **Live status:** Unavailable from flight provider. {flight_results}\n- **Fare note:** Flight tracking is not a ticket quote; check an airline or ticketing site for fares."
+        return (
+            f"## Flight Recommendations\n- **Route:** {origin} -> {destination}\n"
+            "- **Live status:** The flight-tracking provider returned no route records.\n"
+            f"- **Compare current schedules and fares:** [Search this route on Google Flights]({_flight_search_link(origin, destination)})\n"
+            "- Select your travel dates there; fares, connections, and airline availability depend on the dates."
+        )
 
     records = [block.strip() for block in re.split(r"\n\s*---\s*\n", flight_results or "") if "Airline:" in block]
     if records:
@@ -499,7 +604,12 @@ def _flight_recommendations_section(flight_results: str, destination: str, origi
 
     plain = _plain_from_markdown_links(flight_results, limit=5)
     note = " / ".join(plain) if plain else "No matching live flight records were returned."
-    return f"## Flight Recommendations\n- **Route:** {origin} -> {destination}\n- **Live status:** {_shorten(note, 500)}\n- **Fare note:** Flight tracking data is not a ticket quote; confirm schedules and prices with an airline or ticketing site."
+    return (
+        f"## Flight Recommendations\n- **Route:** {origin} -> {destination}\n"
+        f"- **Live status:** {_shorten(note, 500)}\n"
+        f"- **Compare current schedules and fares:** [Search this route on Google Flights]({_flight_search_link(origin, destination)})\n"
+        "- Confirm dates, baggage rules, connections, and final price before booking."
+    )
 
 
 _HOTEL_TIER_LABELS = ["Budget", "Mid-Range", "Luxury"]
@@ -538,32 +648,27 @@ _HOTEL_NEIGHBORHOODS = {
 
 
 def _hotel_recommendations_section(hotel_results: str, destination: str) -> str:
-    names = _plain_from_markdown_links(hotel_results, limit=6)
-    names = [name for name in names if not re.search(r"no results found|check availability directly", name, re.IGNORECASE)]
-
-    picks: dict[str, str | None] = {tier: None for tier in _HOTEL_TIER_LABELS}
-    leftovers = []
-    for name in names:
-        tier = _classify_hotel_tier(name)
-        if picks[tier] is None:
-            picks[tier] = name
-        else:
-            leftovers.append(name)
-    for tier in _HOTEL_TIER_LABELS:
-        if picks[tier] is None and leftovers:
-            picks[tier] = leftovers.pop(0)
-
-    lines = ["## 🏨 Accommodation Recommendations"]
+    entries = [
+        line.strip() for line in (hotel_results or "").splitlines()
+        if line.strip().startswith("-")
+        and not re.search(r"no results found|check availability directly", line, re.IGNORECASE)
+    ][:4]
+    lines = ["## \U0001f3e8 Accommodation Recommendations", f"Options researched for **{destination}**:"]
     neighborhoods = _HOTEL_NEIGHBORHOODS.get(destination.lower().strip())
-    for short_tier, long_tier in zip(_HOTEL_TIER_LABELS, _ACCOMMODATION_TIER_LABELS):
-        name = picks[short_tier]
-        if not name and neighborhoods:
-            name = f"Suggested area: {neighborhoods[_HOTEL_TIER_LABELS.index(short_tier)]} (no property verified)"
-        elif not name:
-            name = "No verified property or neighborhood data available; check a current map and recent listings."
-        lines.append(f"- **{long_tier}:** {name} — verify exact price, neighborhood and cancellation policy before booking.")
+    if entries:
+        lines.extend(entries)
+    if neighborhoods:
+        labels = ("Budget-friendly base", "Convenient sightseeing base", "Upscale base")
+        for label, area in zip(labels, neighborhoods):
+            map_url = "https://www.google.com/maps/search/?api=1&query=" + quote_plus(f"hotels in {area}, {destination}")
+            lines.append(f"- **{label}:** {area} — [see current hotel listings]({map_url})")
+    else:
+        map_url = "https://www.google.com/maps/search/?api=1&query=" + quote_plus(f"hotels in {destination}")
+        lines.append(f"- **Browse stays:** [See current hotels in {destination}]({map_url})")
+    if not entries:
+        lines.append("- Live property search returned no verified names or prices; the links above open current map listings for comparison.")
+    lines.append("- Before booking, compare total cost with taxes, transit access, recent guest reviews, and cancellation terms.")
     return "\n".join(lines)
-
 
 def _weather_packing_section(weather_results: str, destination: str) -> str:
     weather_line = weather_results.strip() if weather_results else (
@@ -622,6 +727,51 @@ def _budget_table_section(budget_results: str, currency_code: str = "USD", days:
     return "\n".join(rows)
 
 
+def _budget_snapshot_section(budget_results: str, currency_code: str = "USD", days: int = 1) -> str:
+    """Give the traveler a quick total and daily budget beside the itinerary."""
+    currency_code = currency_code.upper()
+    symbol = _CURRENCY_SYMBOLS.get(currency_code, f"{currency_code} ")
+    duration = max(days, 1)
+    match = re.search(r"Budget range:\s*([\d,]+)-([\d,]+)", budget_results or "", re.I)
+    if match:
+        low, high = (int(value.replace(",", "")) for value in match.groups())
+        total_label = f"{symbol}{low:,}–{symbol}{high:,}"
+        daily_label = f"{symbol}{low // duration:,}–{symbol}{high // duration:,}"
+        context = "Estimated trip total and per-day average"
+    else:
+        match = re.search(r"Planning budget input:\s*[A-Z]{3}\s+([\d,]+)", budget_results or "", re.I)
+        if match:
+            total = int(match.group(1).replace(",", ""))
+            total_label = f"{symbol}{total:,}"
+            daily_label = f"{symbol}{total // duration:,}"
+            context = "Your stated trip budget and per-day average"
+        else:
+            low, high = _DAILY_BUDGET_RANGES.get(currency_code, (100, 250))
+            total_label = f"{symbol}{low * duration:,}–{symbol}{high * duration:,}"
+            daily_label = f"{symbol}{low:,}–{symbol}{high:,}"
+            context = "Estimated trip total and per-day average"
+    return (
+        "## Budget Snapshot\n"
+        f"- **{context}:** {total_label} total for {duration} days ({daily_label} per day).\n"
+        "- Keep a 10–15% buffer for price changes and unexpected costs; flights and lodging can vary most by date."
+    )
+
+
+def _final_recommendations_section(destination: str) -> str:
+    neighborhoods = _HOTEL_NEIGHBORHOODS.get(destination.lower().strip())
+    area_tip = (
+        f"For lodging, compare {neighborhoods[0]} for value with {neighborhoods[1]} for sightseeing access."
+        if neighborhoods else
+        "Choose lodging near the places you plan to visit and check the nearest transit stop before booking."
+    )
+    return (
+        "## Final Recommendations\n"
+        f"- {area_tip}\n"
+        "- Book cancellable lodging and transport first, then reserve timed-entry attractions; recheck prices and opening hours for your dates.\n"
+        "- Keep the daily plan flexible: group nearby sights together and leave one lighter block for delays or rest."
+    )
+
+
 
 def offline_itinerary(state) -> str:
     """Provide a useful plan while the external LLM is temporarily
@@ -636,7 +786,7 @@ def offline_itinerary(state) -> str:
     origin = state.get("origin") or route["origin"]
 
     if days:
-        day_section = f"## 📅 Day-by-Day Detailed Itinerary\n\n{_build_day_by_day(days, destination)}"
+        day_section = f"## 📅 Day-by-Day Detailed Itinerary\n\n{_build_day_by_day(days, destination, state.get('budget_results', ''), state.get('currency', 'USD'))}"
     else:
         day_section = """## 📅 Day-by-Day Detailed Itinerary
 
@@ -651,6 +801,10 @@ def offline_itinerary(state) -> str:
     return f"""# ✈️ TripPilot AI: Complete Travel Plan
 
 {_executive_summary_section(destination, days, state.get('budget_results', ''), state.get('currency', 'USD'))}
+
+---
+
+{_budget_snapshot_section(state.get('budget_results', ''), state.get('currency', 'USD'), days)}
 
 ---
 
@@ -671,6 +825,10 @@ def offline_itinerary(state) -> str:
 ---
 
 {_budget_table_section(state.get('budget_results', ''), state.get('currency', 'USD'), state.get('target_days', days))}
+
+---
+
+{_final_recommendations_section(destination)}
 
 _The live AI itinerary service is temporarily rate-limited. This is a synthesized fallback plan — verify all prices, availability, and timings before booking._"""
 
@@ -784,7 +942,9 @@ def flight_agent(state: TravelState):
 
 def hotel_agent(state: TravelState):
     destination = _destination_from_query(state["user_query"])
-    query = f"Best hotels for {state['user_query']}"
+    preferences = re.sub(r"\b(?:plan|planning|trip|travel|itinerary|hotel|hotels|stay|accommodation|including|with|for)\b", " ", state["user_query"], flags=re.IGNORECASE)
+    preferences = re.sub(r"\s+", " ", preferences).strip(" ,.-")
+    query = f"best places to stay hotels in {destination} {preferences} neighborhoods price recent reviews"
     try:
         raw_results = tavily_search(query)
     except Exception:
@@ -1157,9 +1317,11 @@ Budget: {_shorten(state.get('budget_results', ''))}
 - **Destination:** {plan.destination}
 - **Duration:** {plan.target_days} days
 
+{_budget_snapshot_section(state.get('budget_results', ''), state.get('currency', 'USD'), plan.target_days)}
+
 ## Day-by-Day Detailed Itinerary
 
-{_daily_plan_markdown(plan.daily_itinerary)}
+{_daily_plan_markdown(plan.daily_itinerary, state.get('budget_results', ''), state.get('currency', 'USD'), plan.target_days)}
 
 ---
 
@@ -1176,6 +1338,10 @@ Budget: {_shorten(state.get('budget_results', ''))}
 ---
 
 {_budget_table_section(state.get('budget_results', ''), state.get('currency', 'USD'), plan.target_days)}
+
+---
+
+{_final_recommendations_section(destination_name)}
 """
 
     return {

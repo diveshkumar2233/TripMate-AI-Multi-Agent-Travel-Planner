@@ -18,7 +18,7 @@ import nest_asyncio
 nest_asyncio.apply()
 
 BASE_DIR = Path(__file__).resolve().parent
-PLANNER_BUILD = "tokyo-grounded-hitl-v7"
+PLANNER_BUILD = "trip-planner-demo-v11"
 
 app = FastAPI(
     title="TripPilot AI",
@@ -59,7 +59,7 @@ def _sanitize_public_data(value, field_name: str = ""):
         if "weather" in field_name.lower():
             return "Live weather currently unavailable. Pack for seasonal averages."
         if "flight" in field_name.lower():
-            return "Live flight details offline. Standard carriers: Biman Bangladesh, IndiGo, Air India"
+            return "Live flight tracking is unavailable. No schedules or fares were returned for this route."
         return "Live external research is currently unavailable. Verify details directly with the provider."
     return value
 
@@ -170,9 +170,12 @@ async def health_check():
         "planner_build": PLANNER_BUILD,
         "features": [
             "structured_day_by_day_itineraries",
+            "activity_based_daily_budget_allocations",
+            "route_search_fallbacks",
+            "neighborhood_map_fallbacks",
             "destination_grounded_fallbacks",
             "sanitized_external_api_errors",
-            "origin_currency_budget_estimates",
+            "currency_aware_budget_estimates",
         ],
     }
 

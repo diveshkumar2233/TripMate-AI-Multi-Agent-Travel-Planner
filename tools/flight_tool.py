@@ -24,7 +24,7 @@ DEFAULT_ORIGIN_IATA = os.getenv("DEFAULT_ORIGIN_IATA", "DEL")
 BASE_URL = "https://api.aviationstack.com/v1/flights"
 FLIGHT_UNAVAILABLE = {
     "status": "offline",
-    "message": "Live flight details offline. Standard carriers: Biman Bangladesh, IndiGo, Air India",
+    "message": "Live flight tracking is unavailable. No schedules or fares were returned for this route.",
 }
 
 
