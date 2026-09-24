@@ -2,7 +2,7 @@
 
 A travel-planning demo that turns a natural-language trip request into a structured, day-by-day itinerary. It combines a LangGraph workflow with FastAPI, a small browser UI, and optional external research providers.
 
-[Live demo]([https://tripmate-ai-multi-agent-travel-planner-3.onrender.com](https://tripmate-ai-multi-agent-travel-planner-5.onrender.com/))
+[Live demo](https://tripmate-ai-multi-agent-travel-planner-5.onrender.com/)
 
 ## What it does
 
